@@ -1,16 +1,17 @@
 package fakeio
 
-import java.io.File
 import org.specs2.mutable.Specification
 import scalaz.{ Monad, State }
+import scalaz.syntax.monad._
 
-class FileSystemSpec extends Specification {
+final class FileSystemSpec extends Specification {
   import FileSystemSpec._
 
   "ls" >> {
-    "deletes existing file" >> {
-      testAction
-        .eval(new FileSystemSpec.FakeFile(dir, Seq(fileName)))
+    "does not list deleted file" >> {
+      deleteThenList[FakeIO, Unit](dir, fileName)
+        // Note: eval because `deleteThenList` 'returns' the list.
+        .eval(new FakeFile(dir, Seq(fileName)))
         .must(not)
         .contain(fileName)
     }
@@ -18,9 +19,8 @@ class FileSystemSpec extends Specification {
     "has no effect if file does not exist" >> {
       val fileNames = Seq("bar", "baz")
 
-      testAction
-        .eval(new FileSystemSpec.FakeFile(dir, fileNames))
-        .mustEqual(fileNames)
+      deleteThenList[FakeIO, Unit](dir, fileName)
+        .eval(new FakeFile(dir, fileNames)).mustEqual(fileNames)
     }
   }
 }
@@ -31,7 +31,7 @@ object FileSystemSpec {
     * names and children we want to test with.
     */
   final class FakeFile(name: String, children: Seq[String])
-    extends File(name) {
+    extends java.io.File(name) {
     override def list: Array[String] = children.toArray
   }
 
@@ -45,51 +45,56 @@ object FileSystemSpec {
   type FakeIO[A] = State[FakeFile, A]
 
   /**
-    * Implementation of fake IO that internally keeps track of a fake
-    * 'file'.
+    * Returns a common test action: deleting a given file from a given
+    * directory and then listing the files in that directory.
     *
-    * @param monad provides compile-time proof that whatever effect we
-    *              use can be sequenced.
+    * Note that this is (almost) totally generic: it can be used with
+    * any effect and context types as long as we can prove that the
+    * effects can be sequenced monadically. To prove this, just remove
+    * the `Monad` constraint from the right of the `Eff` type parameter
+    * below and try to compile the tests.
     *
-    */
-  private final class Fake()(implicit monad: Monad[FakeIO])
-    extends FileSystem[FakeIO, Unit]() {
-    /**
-      * Returns the children files of the current state of the tracked
-      * file.
-      */
-    override def ls(dir: String): FakeIO[Seq[String]] =
-      State gets (_.list)
-
-    /**
-      * Removes a child file of the currently-tracked directory if it
-      * exists, otherwise does nothing.
-      */
-    override def rm(dir: String, fileName: String): FakeIO[Unit] =
-      for {
-        fileNames <- ls(dir)
-        _ <-
-          State modify { f: FakeFile =>
-            if (fileNames contains fileName)
-              new FakeFile(dir, fileNames filterNot fileName.==)
-            else f
-          }
-      } yield unit
-  }
-
-  /**
-    * Returns a common test action: deleting a certain file from a
-    * certain directory and then listing the files in that directory.
-    *
+    * @param dir the directory to look for the file in.
+    * @param fileName the file to delete.
     * @param fs the fake FileSystem implementation to operate in.
+    *
+    * @tparam Eff the type of effect we are running inside.
+    * @tparam Ctx the type of context we need for the effect.
     */
-  def testAction(
-    implicit fs: FileSystem[FakeIO, Unit]): FakeIO[Seq[String]] =
+  def deleteThenList[Eff[_]: Monad, Ctx](dir: String, fileName: String)(
+    implicit fs: FileSystem[Eff, Ctx]): Eff[Seq[String]] =
     for (_ <- fs.rm(dir, fileName); files <- fs ls dir) yield files
-
-  /** The fake FileSystem implementation. */
-  implicit val fake: FileSystem[FakeIO, Unit] = new Fake()
 
   val dir: String = "."
   val fileName: String = "foo"
+
+  /**
+    * The fake FileSystem implementation that internally keeps track of
+    * a fake 'file'.
+    */
+  implicit val fake: FileSystem[FakeIO, Unit] =
+    new FileSystem[FakeIO, Unit]() {
+      /**
+        * Returns a stateful action that evaluates to the children files
+        * of the tracked file.
+        */
+      override def ls(dir: String): FakeIO[Seq[String]] =
+        State gets (_.list)
+
+      /**
+        * Returns a stateful action that removes a child file of the
+        * currently-tracked directory if it exists, otherwise does
+        * nothing.
+        */
+      override def rm(dir: String, fileName: String): FakeIO[Unit] =
+        for {
+          fileNames <- ls(dir)
+          _ <-
+            State modify { f: FakeFile =>
+              if (fileNames contains fileName)
+                new FakeFile(dir, fileNames filterNot fileName.==)
+              else f
+            }
+        } yield unit
+    }
 }

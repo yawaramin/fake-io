@@ -2,7 +2,7 @@
 
 This is a project to demonstrate abstracting out IO effects from Scala
 programs to promote testing without mocking. It is inspired by similar
-work done in the Haskell work, such as:
+work done in the Haskell community, such as:
 
   - https://engineering.imvu.com/2015/06/20/testable-io-in-haskell-2/
 

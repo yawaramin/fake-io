@@ -43,15 +43,24 @@ object FileSystem {
       Future(new File(dir).list)
 
     override def rm(dir: String, fileName: String): Future[Unit] =
-      for {
-        fileNames <- ls(dir)
-        _ <-
-          if (fileNames contains fileName)
-            Future(new File(fileName).delete)
-          else Future successful unit
-      } yield unit
+      ls(dir) flatMap { fileNames =>
+        if (fileNames contains fileName)
+          Future { new File(dir, fileName).delete; unit }
+
+        else Future successful unit
+      }
   }
 
+  /**
+    * Returns a new filesystem operations typeclass instance for
+    * operating with asynchronous IO.
+    *
+    * @param monad proves that Scala Futures can sequence their
+    *              operations (although strictly speaking, it's not
+    *              really necessary because we already know they can).
+    *
+    * @param ctx the scheduler that's needed by Scala Futures.
+    */
   implicit def async(
     implicit monad: Monad[Future],
     ctx: ExecutionContext): FileSystem[Future, ExecutionContext] =
