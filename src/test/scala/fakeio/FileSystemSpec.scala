@@ -1,8 +1,9 @@
 package fakeio
 
+import java.io.File
 import org.specs2.mutable.Specification
-import scalaz.{ Monad, State }
-import scalaz.syntax.monad._
+import scalaz.{ Maybe, MonadPlus }
+import scalaz.syntax.monadPlus._
 
 final class FileSystemSpec extends Specification {
   import FileSystemSpec._
@@ -10,8 +11,12 @@ final class FileSystemSpec extends Specification {
   "ls" >> {
     "does not list deleted file" >> {
       deleteThenList[FakeIO, Unit](dir, fileName)
-        // Note: eval because `deleteThenList` 'returns' the list.
+        /*
+        Note: `eval` because `deleteThenList` returns a fake IO action
+        that evaluates to the list.
+        */
         .eval(new FakeFile(dir, Seq(fileName)))
+        .getOrElse(???)
         .must(not)
         .contain(fileName)
     }
@@ -31,7 +36,7 @@ object FileSystemSpec {
     * names and children we want to test with.
     */
   final class FakeFile(name: String, children: Seq[String])
-    extends java.io.File(name) {
+    extends File(name) {
     override def list: Array[String] = children.toArray
   }
 
@@ -42,7 +47,7 @@ object FileSystemSpec {
     * @tparam A the type of return values from evaluating our stateful
     *           computations.
     */
-  type FakeIO[A] = State[FakeFile, A]
+  type FakeIO[A] = StateT[FakeFile, Maybe, A]
 
   /**
     * Returns a common test action: deleting a given file from a given
@@ -54,14 +59,14 @@ object FileSystemSpec {
     * the `Monad` constraint from the right of the `Eff` type parameter
     * below and try to compile the tests.
     *
-    * @param dir the directory to look for the file in.
+    * @param      dir the directory to look for the file in.
     * @param fileName the file to delete.
-    * @param fs the fake FileSystem implementation to operate in.
-    *
-    * @tparam Eff the type of effect we are running inside.
-    * @tparam Ctx the type of context we need for the effect.
+    * @param       fs the fake FileSystem implementation to operate in.
+   * @tparam     Eff the type of effect we are running inside.
+    * @tparam     Ctx the type of context we need for the effect.
     */
-  def deleteThenList[Eff[_]: Monad, Ctx](dir: String, fileName: String)(
+  def deleteThenList[Eff[_]: MonadPlus, Ctx](
+    dir: String, fileName: String)(
     implicit fs: FileSystem[Eff, Ctx]): Eff[Seq[String]] =
     for (_ <- fs.rm(dir, fileName); files <- fs ls dir) yield files
 
@@ -79,7 +84,7 @@ object FileSystemSpec {
         * of the tracked file.
         */
       override def ls(dir: String): FakeIO[Seq[String]] =
-        State gets (_.list)
+        StateT gets (_.list)
 
       /**
         * Returns a stateful action that removes a child file of the
@@ -88,13 +93,11 @@ object FileSystemSpec {
         */
       override def rm(dir: String, fileName: String): FakeIO[Unit] =
         for {
-          fileNames <- ls(dir)
-          _ <-
-            State modify { f: FakeFile =>
-              if (fileNames contains fileName)
-                new FakeFile(dir, fileNames filterNot fileName.==)
-              else f
-            }
-        } yield unit
+          fileNames <- ls(dir) if fileNames contains fileName
+          u <-
+            StateT.modify[FakeFile, Maybe]({ f =>
+              new FakeFile(dir, fileNames filterNot fileName.==)
+            })
+        } yield u
     }
 }
