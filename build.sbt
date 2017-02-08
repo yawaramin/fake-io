@@ -6,7 +6,8 @@ scalaVersion := "2.11.8"
 
 libraryDependencies ++=
   Seq(
-    "org.scalaz" %% "scalaz-core" % "7.2.5",
+    "io.monix" %% "monix-eval" % "2.2.1",
+    "io.monix" %% "monix-cats" % "2.2.1",
     "org.specs2" %% "specs2-core" % "3.8.4" % Test)
 
 scalacOptions ++=
@@ -14,10 +15,8 @@ scalacOptions ++=
     "-feature",
     "-language:higherKinds",
     "-unchecked",
-    "-Xfatal-warnings",
     "-Xlint",
     "-Yno-adapted-args",
-    "-Ywarn-value-discard",
-    "-Ywarn-unused-import")
+    "-Ywarn-value-discard")
 
 scalacOptions in Test ++= Seq("-Yrangepos")

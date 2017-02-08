@@ -77,7 +77,8 @@ object FileSystemSpec {
     * The fake FileSystem implementation that internally keeps track of
     * a fake 'file'.
     */
-  implicit val fake: FileSystem[FakeIO, Unit] =
+  implicit def fake(
+    implicit monadPlus: MonadPlus[FakeIO]): FileSystem[FakeIO, Unit] =
     new FileSystem[FakeIO, Unit]() {
       /**
         * Returns a stateful action that evaluates to the children files
@@ -91,13 +92,16 @@ object FileSystemSpec {
         * currently-tracked directory if it exists, otherwise does
         * nothing.
         */
-      override def rm(dir: String, fileName: String): FakeIO[Unit] =
-        for {
-          fileNames <- ls(dir) if fileNames contains fileName
-          u <-
-            StateT.modify[FakeFile, Maybe]({ f =>
-              new FakeFile(dir, fileNames filterNot fileName.==)
-            })
-        } yield u
+      override def rm(dir: String, fileName: String): FakeIO[Unit] = {
+        val containsFile =
+          monadPlus.bind(ls(dir)) { fileNames =>
+            if (fileNames contains fileName) monadPlus point fileNames
+            else monadPlus.empty
+          }
+
+        monadPlus.bind(containsFile) { fileNames =>
+          StateT put new FakeFile(dir, fileNames filterNot fileName.==)
+        }
+      }
     }
 }

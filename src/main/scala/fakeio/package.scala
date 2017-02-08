@@ -1,1 +1,5 @@
-package object fakeio { implicit val unit = () }
+package object fakeio {
+  type Id[A] = A
+
+  implicit val unit = ()
+}
